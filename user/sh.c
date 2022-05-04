@@ -308,7 +308,7 @@ gettoken(char **ps, char *es, char **q, char **eq)
 }
 
 int
-peek(char **ps, char *es, char *toks)
+peek(char **ps, char *es, char *toks)   //find whether s has toks
 {
   char *s;
 
@@ -327,7 +327,7 @@ struct cmd *nulterminate(struct cmd*);
 struct cmd*
 parsecmd(char *s)
 {
-  char *es;
+  char *es;         //a pointer that point to end of s
   struct cmd *cmd;
 
   es = s + strlen(s);
