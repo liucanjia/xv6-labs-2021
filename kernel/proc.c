@@ -657,3 +657,18 @@ procdump(void)
     printf("\n");
   }
 }
+
+int 
+getnproc(uint64* nproc)
+{
+  uint64 cnproc = 0;
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    if(p->state != UNUSED)
+      cnproc++;
+  }
+
+  *nproc = cnproc;
+  return 0;
+}
