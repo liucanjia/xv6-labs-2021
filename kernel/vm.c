@@ -432,3 +432,32 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+#ifdef LAB_PGTBL
+void vmprint(pagetable_t pagetable)
+{
+  printf("page table %p\n", pagetable);
+  for(int i = 0; i < 512; i++){
+    pte_t topPte = pagetable[i];
+    if(!(topPte & PTE_V)) continue;
+
+    pagetable_t midPageTable = (pagetable_t)PTE2PA(topPte);
+    printf("..%d: pte %p pa %p\n", i, (uint64*)topPte, midPageTable);
+    for(int j = 0; j < 512; j++){
+      pte_t midPte = midPageTable[j];
+      if(!(midPte & PTE_V)) continue;
+
+      pagetable_t lastPageTable = (pagetable_t)PTE2PA(midPte);
+      printf(".. ..%d: pte %p pa %p\n", j, (uint64*)midPte, lastPageTable);
+      for(int k = 0; k < 512; k++){
+        pte_t lastPte = lastPageTable[k];
+        if(!(lastPte & PTE_V)) continue;
+
+        pagetable_t lastPage = (pagetable_t)PTE2PA(lastPte);
+        printf(".. .. ..%d: pte %p pa %p\n", k, (uint64*)lastPte, lastPage);
+      }
+    }
+  }
+  return ;
+}
+#endif
