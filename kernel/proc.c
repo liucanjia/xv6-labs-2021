@@ -680,3 +680,25 @@ procdump(void)
     printf("\n");
   }
 }
+
+#ifdef LAB_PGTBL
+int             
+pgaccess(void* vaBase, int number, void* buffer)
+{
+  uint64 bitmask = 0;
+  struct proc* p;
+
+  p = myproc();
+  if(0 == p) return -1;
+
+  for(int i = 0; i < number; i++){
+    pte_t* pte = walk(p->pagetable, (uint64)vaBase + i * PGSIZE, 0);
+    if(*pte & PTE_A){
+      bitmask |= 1 << i;
+      *pte ^= PTE_A;
+    }
+  }
+
+  return copyout(p->pagetable, (uint64)buffer, (char*)&bitmask, sizeof(bitmask));
+}
+#endif
