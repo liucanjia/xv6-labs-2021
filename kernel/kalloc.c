@@ -14,6 +14,8 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
+extern int pages_count[];
+
 struct run {
   struct run *next;
 };
@@ -47,9 +49,16 @@ void
 kfree(void *pa)
 {
   struct run *r;
+  uint64 index = ((uint64)pa - KERNBASE) / PGSIZE;
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
+  /* 在kfree减少引用计数, 若引用计数＞1, 则不清楚物理页, 否则清除物理页, 并在后面把计数清零 */
+  if(pages_count[index] > 1)
+  {
+    pages_count[index]--;
+    return ;
+  }
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
@@ -59,6 +68,7 @@ kfree(void *pa)
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
+  pages_count[index] = 0;
   release(&kmem.lock);
 }
 
@@ -77,6 +87,10 @@ kalloc(void)
   release(&kmem.lock);
 
   if(r)
+  {
+    pages_count[((uint64)r - KERNBASE) / PGSIZE] = 1; //每次分配物理页同时开始计数
     memset((char*)r, 5, PGSIZE); // fill with junk
+  }
+    
   return (void*)r;
 }

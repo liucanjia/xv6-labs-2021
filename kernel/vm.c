@@ -15,6 +15,8 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+int pages_count[(PHYSTOP - KERNBASE) / PGSIZE];
+
 // Make a direct-map page table for the kernel.
 pagetable_t
 kvmmake(void)
@@ -303,22 +305,21 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
+    *pte &= ~PTE_W;     //父子进程的flag标志都要改变
+    *pte |= PTE_COW;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
+      kfree((void *)pa);
       goto err;
     }
+    pages_count[((uint64)pa - KERNBASE) / PGSIZE]++;
   }
   return 0;
 
@@ -350,6 +351,15 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    //可能出现虚拟地址过大, 直接return
+    if(va0 >= MAXVA)
+      return -1;
+    //若为COW页, 则进行处理  
+    if(pages_cow_fault(pagetable, va0) == 0){
+      if(cow(pagetable, va0) != 0)
+        return -1;
+    }
+
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
@@ -431,4 +441,50 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+int
+pages_cow_fault(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte = walk(pagetable, va, 0);
+
+  if(pte == 0)
+    return -1;
+  
+  if(*pte & PTE_COW)
+    return 0;
+  else
+    return -1;
+}
+
+int
+cow(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte = walk(pagetable, va, 0);
+  uint64 va0 = PGROUNDDOWN(va);
+  uint64 pa0 = PTE2PA(*pte);
+  uint64 index = ((uint64)pa0 - KERNBASE) / PGSIZE;
+  uint flags = PTE_FLAGS(*pte);
+  char *mem;
+  //页面计数为1, 直接改变flag即可
+  if(pages_count[index] == 1){
+    *pte |= PTE_W;
+    *pte &= ~PTE_COW;
+  } else {    //申请新页面, 并改变flag标志, 重新映射页表项
+    flags |= PTE_W;
+    flags &= ~PTE_COW;
+    if((mem = kalloc()) == 0)
+      goto err;
+    memmove(mem, (char*)pa0, PGSIZE);
+    uvmunmap(pagetable, va0, 1, 1);   //先取消原本的页表映射
+    if(mappages(pagetable, va0, PGSIZE, (uint64)mem, flags) != 0){
+      uvmunmap(pagetable, va0, 1, 1);
+      goto err;
+    }
+  }
+
+  return 0;
+
+err:
+  return -1;
 }

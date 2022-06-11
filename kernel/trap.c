@@ -65,6 +65,21 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if( r_scause() == 15){   //写页面出错, 可能为COW页面
+    uint64 va = r_stval();
+    // 虚拟地址过大, 杀死进程
+    if(va >= MAXVA){
+      p->killed = 1;
+    }
+    else if(pages_cow_fault(myproc()->pagetable, va) == 0){
+        if(cow(myproc()->pagetable, va) != 0){
+          printf("usertrap: pages cow fault");  //重新分配页面失败, 杀死进程
+          p->killed = 1;
+        }
+    } else{
+      printf("usertrap: pages fault");  //非COW页, 直接杀死进程
+      p->killed = 1;
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
