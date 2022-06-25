@@ -1,0 +1,11 @@
+thread_switch needs to save/restore only the callee-save registers. Why?
+
+被调用的函数有义务保存callee-saved寄存器, 保证在函数返回后callee-saved寄存器的内容不变
+
+This sets a breakpoint at line 60 of uthread.c. The breakpoint may (or may not) be triggered before you even run uthread. How could that happen?
+
+因为gdb的实现依赖于监视pc寄存器，我们在b some_func的时候实际上是记录的某个地址。如果uthread内的指令地址与内核的指令地址有重复，那么当内核运行到这个地址的时候就会触发本应该在uthread内的断点。此外，很容易验证不同的用户态程序也会干扰。比如在uthread内部的0x3b之类的地址打下个断点，再运行ls或者其他用户态程序，如果在0x3b地址的指令是合法的，那么也会触发本应该在uthread程序内部的断点
+
+Why are there missing keys with 2 threads, but not with 1 thread? Identify a sequence of events with 2 threads that can lead to a key being missing. Submit your sequence with a short explanation in answers-thread.txt
+
+多线程同时写哈希表, 产生竞态问题, 导致一些写入丢失
