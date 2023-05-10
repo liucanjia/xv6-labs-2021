@@ -70,10 +70,11 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        if(p < buf + n){
+        if(p < buf + n){        //buf缓冲区中的字符读取了部分, 则抛弃已经读取的部分
             memmove(buf, p, buf + n - p);
-            p = buf + (buf + n - p);
         }
+
+        p = buf + (buf + n - p);
     }
 
   exit(0);
