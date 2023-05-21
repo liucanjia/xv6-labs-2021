@@ -109,5 +109,5 @@ struct proc {
   int ticks;
   int nticks;
   uint64 handler;
-  struct trapframe etpfm;
+  struct trapframe *etpfm;
 };

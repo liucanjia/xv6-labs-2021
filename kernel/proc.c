@@ -127,6 +127,13 @@ found:
     return 0;
   }
 
+  // Allocate a extraTrapframe page
+  if((p->etpfm = (struct trapframe *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -153,6 +160,9 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->etpfm)
+    kfree((void*)p->etpfm);
+  p->etpfm = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -196,6 +206,15 @@ proc_pagetable(struct proc *p)
     return 0;
   }
 
+  // map the extraTrapframe just below TRAPFRAME, for alarm
+  if(mappages(pagetable, EXTRATRAPFRAME, PGSIZE, 
+              (uint64)(p->etpfm), PTE_R | PTE_W) < 0) {
+    uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+    uvmunmap(pagetable, TRAPFRAME, 1, 0);
+    uvmfree(pagetable, 0);
+    return 0;
+  }
+
   return pagetable;
 }
 
@@ -206,6 +225,7 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  uvmunmap(pagetable, EXTRATRAPFRAME, 1, 0);
   uvmfree(pagetable, sz);
 }
 

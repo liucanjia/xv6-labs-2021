@@ -119,7 +119,7 @@ uint64
 sys_sigreturn(void)
 {
   struct proc* p = myproc();
-  memmove(p->trapframe, &(p->etpfm), sizeof(struct trapframe));
+  memmove(p->trapframe, p->etpfm, sizeof(struct trapframe));
   p->ticks = 0;
   return 0;
 }
