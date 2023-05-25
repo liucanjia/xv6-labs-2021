@@ -315,10 +315,8 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     *pte |= PTE_COW;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
-      kfree((void *)pa);
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0)    //map失败, 直接结束; map成功则页面计数+1
       goto err;
-    }
     pages_count[((uint64)pa - KERNBASE) / PGSIZE]++;
   }
   return 0;
@@ -460,9 +458,9 @@ pages_cow_fault(pagetable_t pagetable, uint64 va)
 int
 cow(pagetable_t pagetable, uint64 va)
 {
-  pte_t *pte = walk(pagetable, va, 0);
-  uint64 va0 = PGROUNDDOWN(va);
-  uint64 pa0 = PTE2PA(*pte);
+  pte_t *pte = walk(pagetable, va, 0);        //获得页表项
+  uint64 va0 = PGROUNDDOWN(va);                    //计算虚拟地址对应的页表首地址
+  uint64 pa0 = PTE2PA(*pte);                       //获得物理地址
   uint64 index = ((uint64)pa0 - KERNBASE) / PGSIZE;
   uint flags = PTE_FLAGS(*pte);
   char *mem;
@@ -475,10 +473,10 @@ cow(pagetable_t pagetable, uint64 va)
     flags &= ~PTE_COW;
     if((mem = kalloc()) == 0)
       goto err;
-    memmove(mem, (char*)pa0, PGSIZE);
+    memmove(mem, (char*)pa0, PGSIZE);                //拷贝页面
     uvmunmap(pagetable, va0, 1, 1);   //先取消原本的页表映射
-    if(mappages(pagetable, va0, PGSIZE, (uint64)mem, flags) != 0){
-      uvmunmap(pagetable, va0, 1, 1);
+    if(mappages(pagetable, va0, PGSIZE, (uint64)mem, flags) != 0){  //从新进行页表映射
+      kfree(mem);                                   // mappages失败, 则free物理页
       goto err;
     }
   }

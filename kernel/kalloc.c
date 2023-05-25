@@ -53,12 +53,10 @@ kfree(void *pa)
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
-  /* 在kfree减少引用计数, 若引用计数＞1, 则不清楚物理页, 否则清除物理页, 并在后面把计数清零 */
-  if(pages_count[index] > 1)
-  {
-    pages_count[index]--;
+  /* 在kfree减少引用计数, 若引用计数＞1, 则不清除物理页, 否则清除物理页, 并在后面把计数清零 */
+  if(pages_count[index]-- > 1)
     return ;
-  }
+  
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
@@ -68,7 +66,6 @@ kfree(void *pa)
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
-  pages_count[index] = 0;
   release(&kmem.lock);
 }
 
