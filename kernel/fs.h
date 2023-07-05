@@ -25,6 +25,7 @@ struct superblock {
 #define FSMAGIC 0x10203040
 #ifdef LAB_FS
 #define NDIRECT 11
+#define MAXSEARCHDEPTH 10
 #else
 #define NDIRECT 12
 #endif

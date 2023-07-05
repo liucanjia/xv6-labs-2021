@@ -36,3 +36,6 @@ entry("getpid");
 entry("sbrk");
 entry("sleep");
 entry("uptime");
+#ifdef LAB_FS
+entry("symlink")
+#endif
