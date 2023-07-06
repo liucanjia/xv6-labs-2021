@@ -16,6 +16,11 @@
 #include "file.h"
 #include "fcntl.h"
 
+#ifdef LAB_MMAP
+#include "memlayout.h"
+#define MAP_FAILED ((uint64) -1)
+#endif
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -484,3 +489,96 @@ sys_pipe(void)
   }
   return 0;
 }
+
+#ifdef LAB_MMAP
+uint64 sys_mmap(void) {
+  uint64 va;
+  int length, offset, prot, flags, fd;
+  struct file *f;
+  
+  // 获取mmap调用参数
+  if(argaddr(0, &va) < 0 || argint(1, &length) || argint(2, &prot) || argint(3, &flags) || argfd(4, &fd, &f) || argint(5, &offset))
+    goto err;
+
+  // 内存映射为可读, 则文件需要可读; 对内存映射的修改写回文件需要文件可写
+  if((!f->readable && (prot & PROT_READ)) || (!f->writable  && (prot & PROT_WRITE) && (flags & MAP_SHARED)))
+    goto err;
+
+  struct proc *p = myproc();
+  struct vma *v = 0;
+  uint64 vaEnd = MMAPEND;
+
+  // 遍历vmas数组, 寻找可用的vma
+  for(int i = 0; i < NVMA; i++) {
+    if(p->vmas[i].valid) {
+      vaEnd = PGROUNDDOWN(p->vmas[i].addr);
+    } else {
+      if(!v) {
+        v = &p->vmas[i];
+        v->valid = 1;
+      }
+    }
+  }
+
+  if(!v) {
+    panic("mmap: no free vma");
+  } else {
+    v->length = length;
+    length = PGROUNDUP(length);
+    v->addr = vaEnd - length;
+    v->prot = prot;
+    v->flags = flags;
+    v->offset = offset;
+    v->f = f;
+
+    filedup(v->f);
+    // 使用lazyAlloc, 建立对应页表项, 映射到物理地址为0的位置
+    if(lazyAlloc(p->pagetable, v->addr, v->length) != 0) {
+      v->valid = 0;
+      goto err;
+    }
+  }
+  
+  return v->addr;
+
+err:
+  return MAP_FAILED;
+}
+
+uint64 sys_munmap(void) {
+  uint64 va;
+  int length;
+
+  // 获取mmap调用参数
+  if(argaddr(0, &va) < 0 || argint(1, &length))
+    goto err;
+
+  struct proc *p = myproc();
+  struct vma *vp = 0;
+  if((vp = findVma(p, va)) == 0)
+    goto err;
+
+  //munmap to much memory
+  if(va + length > vp->addr + vp->length)
+    goto err;
+
+  // not punch a hole in the middle of a region
+  if(va > vp->addr && va + length < vp->addr + vp->length)
+    goto err;
+
+  // munmap the page
+  if(MUNMAP(p->pagetable, va, length, vp) != 0)
+    goto err;
+
+  // munmap the whole region
+  if(vp->length == 0) {
+    fileclose(vp->f);
+    vp->valid = 0;
+  }
+
+  return 0;
+    
+err:
+  return -1;
+}
+#endif

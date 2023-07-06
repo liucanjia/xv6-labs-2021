@@ -141,6 +141,11 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+#ifdef LAB_MMAP
+  //Clear VMAs
+  memset(p->vmas, 0, sizeof(p->vmas));
+#endif
+
   return p;
 }
 
@@ -153,6 +158,13 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+#ifdef LAB_MMAP
+  for(int i = 0; i < NVMA; i++) {
+    struct vma *vp = &p->vmas[i];
+    if(vp->valid)
+      MUNMAP(p->pagetable, vp->addr, vp->length, vp);
+  }
+#endif
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -300,6 +312,21 @@ fork(void)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
+
+#ifdef LAB_MMAP
+  for(i = 0; i < NVMA; i++) {
+    struct vma * vp = &p->vmas[i];
+    if(vp->valid) {
+      memmove((void*)&np->vmas[i], vp, sizeof(struct vma));
+      // 使用lazyAlloc, 建立对应页表项, 映射到物理地址为0的位置
+      if(lazyAlloc(np->pagetable, vp->addr, vp->length) != 0) {
+        freeproc(np);
+        return -1;
+      }
+      filedup(vp->f);
+    }
+  }
+#endif
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 

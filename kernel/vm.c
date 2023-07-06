@@ -5,6 +5,13 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#ifdef LAB_MMAP
+#include "spinlock.h"
+#include "sleeplock.h"
+#include "file.h"
+#include "proc.h"
+#include "fcntl.h"
+#endif
 
 /*
  * the kernel's page table.
@@ -432,3 +439,148 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+#ifdef LAB_MMAP
+int lazyAlloc(pagetable_t pagetable, uint64 addr, uint64 length) {
+  uint64 a, addrEnd = addr + length;
+
+  for(a = addr; a < addrEnd; a += PGSIZE){
+    if(mappages(pagetable, a, PGSIZE, 0, PTE_M|PTE_U) != 0){
+      uvmunmap(pagetable, addr, (a-addr)/PGSIZE + 1, 0);
+      return -1;
+    }
+  }
+  return 0;
+}
+
+struct vma *findVma(struct proc *p, uint64 va) {
+  struct vma * vp;
+  for(int i = 0; i < NVMA; i++) {
+    vp = &p->vmas[i] ;
+    if(vp->valid && va >= vp->addr && va < vp->addr + vp->length)
+      return vp;
+  }
+  return 0;
+}
+
+int pagesMMAPFault(pagetable_t pagetable, uint64 va) {
+  if(va >= MAXVA)
+    return -1;
+
+  pte_t *pte = walk(pagetable, va, 0);
+
+  if(pte == 0)
+    return -1;
+  
+  if(*pte & PTE_M)
+    return 0;
+  else
+    return -1;
+}
+
+int MMAP(struct proc * p, uint64 va) {
+  // 查找虚拟地址对应的vma
+  struct vma *v = 0;
+  if((v = findVma(p, va)) == 0)
+    goto err;
+
+  // 分配一页内存
+  uint64 pa0 = 0;
+  if((pa0 = (uint64)kalloc()) == 0)
+    panic("MMAP: kalloc");
+  memset((void*)pa0, 0, PGSIZE);
+
+  // 读取映射文件内容
+  struct file *f = v->f;
+  begin_op();
+  ilock(f->ip);
+  readi(f->ip, 0, (uint64)pa0, v->offset + PGROUNDDOWN(va - v->addr), PGSIZE);
+  iunlock(f->ip);
+  end_op();
+
+  //设置页表项  
+  int perm = PTE_U;
+  if(v->prot & PROT_READ)
+    perm |= PTE_R;
+  if(v->prot & PROT_WRITE)
+    perm |= PTE_W;
+  if(v->prot & PROT_EXEC)
+    perm |= PTE_X;
+  
+  //取消原本的页表映射并重新进行映射
+  pagetable_t pagetable = p->pagetable;
+  uint64 va0 = PGROUNDDOWN(va);
+
+  uvmunmap(pagetable, va0, 1, 0);   //先取消原本的页表映射
+  if(mappages(pagetable, va0, PGSIZE, (uint64)pa0, perm) != 0){
+    uvmunmap(pagetable, va0, 1, 1);
+    goto err;
+  }
+
+  return 0;
+
+err:
+  return -1;
+}
+
+int MUNMAP(pagetable_t pagetable, uint64 va, uint64 length, struct vma *vp) {
+  uint64 vaBegin = va, vaEnd = va + length;
+
+  pte_t *pte;
+  for(uint64 a = vaBegin; a < PGROUNDUP(vaEnd); a += PGSIZE) {
+    if((pte = walk(pagetable, a, 0)) == 0)
+      panic("MUNMAP: walk");
+    if((*pte & PTE_V) == 0)
+      panic("MUNMAP: not mapped");
+    if(PTE_FLAGS(*pte) == PTE_V)
+      panic("MUNMAP: not a leaf");
+    
+    if(*pte & PTE_V) {
+      uint64 pa = PTE2PA(*pte);
+      int writeBack = (*pte & PTE_D) && (vp->flags & MAP_SHARED);
+
+      if(a == vaBegin && a % PGSIZE != 0) {                                             // if the first page is not a full page
+        if(writeBack) {
+          begin_op();
+          ilock(vp->f->ip);
+          writei(vp->f->ip, 0, pa + a - PGROUNDDOWN(a), vp->offset + a - vp->addr, PGROUNDUP(a) - a);
+          iunlock(vp->f->ip);
+          end_op();
+        }
+        memset((void*)(pa + a - PGROUNDDOWN(a)), 0, PGROUNDUP(a) - a);    
+      } else if(a + PGSIZE > PGROUNDUP(vaEnd)) {                                        // if the last page is not a full page
+        if(writeBack) {
+          begin_op();
+          ilock(vp->f->ip);
+          writei(vp->f->ip, 0, pa, vp->offset + PGROUNDDOWN(a) - vp->addr, vaEnd - PGROUNDDOWN(vaEnd));
+          iunlock(vp->f->ip);
+          end_op();
+        }
+        memset((void*)pa, 0, vaEnd - PGROUNDDOWN(vaEnd));
+      } else {                                                                          // full page
+        if(writeBack) {
+          begin_op();
+          ilock(vp->f->ip);
+          writei(vp->f->ip, 0, pa, vp->offset + PGROUNDDOWN(a) - vp->addr, PGSIZE);
+          iunlock(vp->f->ip);
+          end_op();
+        }
+        if(!(*pte & PTE_M)) {   //懒分配, 对于还未实际分配内存的页面, 不需要free
+          kfree((void*)pa);
+        }
+        *pte = 0;
+      }
+    }
+  }
+
+  // munmap at the beginning
+  if(va == vp->addr && length < vp->length) {
+    vp->offset += length;
+    vp->addr += length;
+  }
+
+  vp->length -= length;
+
+  return 0;
+}
+#endif

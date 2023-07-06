@@ -189,7 +189,10 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 
-
+ifeq ($(LAB), mmap)
+UPROGS += \
+	$U/_mmaptest
+endif
 
 
 ifeq ($(LAB),$(filter $(LAB), lock))

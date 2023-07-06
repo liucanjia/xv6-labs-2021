@@ -68,10 +68,25 @@ usertrap(void)
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
+#ifdef LAB_MMAP
+    uint64 va = r_stval();
+    if(pagesMMAPFault(myproc()->pagetable, va) == 0){   //MMAP页面出错
+      if(MMAP(myproc(), va) != 0){
+        printf("usertrap: pages mmap fault");  //重新分配页面失败, 杀死进程
+        p->killed = 1;
+      }
+    } else {
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      p->killed = 1;
+    }
+  }
+#else
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
+#endif
 
   if(p->killed)
     exit(-1);

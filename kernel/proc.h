@@ -82,6 +82,18 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+#ifdef LAB_MMAP
+struct vma {
+  int valid;
+  uint64 addr;    //virtual address at which to map the file
+  uint64 length;  //the number of bytes to map
+  int prot;       //readable, writeable, and/or executable
+  int flags;      //MAP_SHARED or MAP_PRIVATE
+  uint64 offset;  //the starting point in the file at which to map
+  struct file *f; //point to the file to be map
+};
+#endif
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -105,4 +117,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+#ifdef LAB_MMAP
+  struct vma vmas[NVMA];
+#endif
 };

@@ -170,6 +170,13 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+#ifdef LAB_MMAP
+int             lazyAlloc(pagetable_t, uint64, uint64);
+struct vma*     findVma(struct proc *, uint64);
+int             pagesMMAPFault(pagetable_t, uint64);
+int             MMAP(struct proc *, uint64);
+int             MUNMAP(pagetable_t, uint64, uint64, struct vma *);
+#endif
 
 // plic.c
 void            plicinit(void);
